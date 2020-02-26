@@ -1,0 +1,495 @@
+
+
+%%%%% this script is to see if there is a trend in flexibility, cohesion
+%%%%% and promiscuity but in the FnS dataset
+
+load('Nodes_WTnFmr1Exp.mat')
+load('Nodes_FnS_all_samples.mat')
+load('graphs_fmr1Exp.mat')
+load('graphs_FnS_all.mat')
+
+keepFmr1=load('graphs_fmr1Exp.mat','keep');
+keepFmr1=keepFmr1.keep;
+
+%%
+
+
+%%%% just checking how many nodes I have per brain region and cluster
+
+%%% the clustID tags are not in the right order... I will change it
+oldclusttag=[4 2 5 6 1 7];
+ClustID=zeros(size(Nodes.Nod_clustID(keep)));
+for i=1:length(unique(Nodes.Nod_clustID(keep)))
+    
+    idx_temp=find(Nodes.Nod_clustID(keep)==oldclusttag(i));
+    ClustID(idx_temp)=i;
+   
+end
+ 
+clustnames={'fasthab1','fasthab2','fasthab3','modhab','weakhab','inhib'};
+
+% figure;
+% subplot(1,2,1);histogram(Nodes.Nod_brainID(keep)); xticks([1:9]); xticklabels(RegionList);xtickangle(45);
+% subplot(1,2,2);histogram(ClustID); xticks([1:6]); xticklabels(clustnames);xtickangle(45);
+
+
+%%%% with fasthab merged
+oldclusttag=[4 2 5 6 1 7];
+ClustID_CL4=zeros(size(Nodes.Nod_clustID(keep)));
+for i=1:length(unique(Nodes.Nod_clustID(keep)))
+    
+    idx_temp=find(Nodes.Nod_clustID(keep)==oldclusttag(i));
+    
+    if i<4    
+    ClustID_CL4(idx_temp)=1;
+    elseif i==4
+   ClustID_CL4(idx_temp)=2;
+   elseif i==5
+   ClustID_CL4(idx_temp)=3;
+   elseif i==6
+   ClustID_CL4(idx_temp)=4;
+    end
+end
+ 
+clustnames_CL4={'fasthab','modhab','weakhab','inhib'};
+
+
+
+%%
+
+Big_FnS_OPT={};
+FlexMat=struct;
+CoheMat=struct;
+PromMat=struct;
+
+
+%%
+Allgamma = 0.1:0.1:1.6;
+Allomega = 0.1:0.1:1;
+
+
+%for g=1%:16
+for g=1:16
+for o=1:10
+
+gamma = Allgamma(g);
+omega = Allomega(o);   
+    
+%% making 1000 iterations per group to calculate a representative modularity 
+S_cons=struct;
+%%
+for data=1:4
+A={};
+
+for loom=1:31
+  
+   temp=Data_corrMat2.(datasets(data,:)).Mean_corrMat{1,loom}(keep,keep);
+   temp(isnan(temp))=0;
+    A{loom}=temp;  
+end
+clear temp
+
+%%
+
+%%%% making a multidimensional structure where to store things
+S_test=[];
+
+for test=1:1000
+     
+%gamma = 0.9;
+%omega = 0.7; %%% this makes a big influence... 
+
+N=length(A{1});
+T=length(A);
+B=spalloc(N*T,N*T,N*N*T+2*N*T);
+twomu=0;
+for s=1:T
+    k=sum(A{s});
+    twom=sum(k);
+    twomu=twomu+twom;
+    indx=[1:N]+(s-1)*N;
+    B(indx,indx)=A{s}-gamma*k'*k/twom;
+end
+twomu=twomu+2*omega*N*(T-1);
+B = B + omega*spdiags(ones(N*T,2),[-N,N],N*T,N*T);
+[S,Q] = genlouvain(B,10000,0);
+%[S,Q,nb_it] = iterated_genlouvain(B);
+Q = Q/twomu;
+S = reshape(S,N,T);
+
+S_test=cat(3,S_test,S);
+  
+  
+end
+
+
+%% trying consensus_iterative 
+
+
+S_good=[];
+for i=1:21
+   C=S_test(:,i,:); 
+   C=squeeze(C);
+   [S2, Q2, X_new3, qpc] = consensus_iterative(C');
+    S_good(:,i)=S2(i,:);
+end
+
+S_cons.(datasets(data,:)).S_test=S_test;
+S_cons.(datasets(data,:)).S_cons=S_good;
+
+
+
+%% testing flexibility
+
+flex=flexibility(S_cons.(datasets(data,:)).S_cons','temp'); %%% i need to mind the orientation of the matrix to do it properly
+
+S_cons.(datasets(data,:)).flex=flex;
+
+%% cohesion strength and related
+
+options.figureFlag	= 0;
+options.colormap	= 'jet';
+
+[Cij,node_cohesion,node_disjoint,node_flexibility,strength_cohesion,commChanges,commCohesion,commDisjoint,commIndex] = calc_node_cohesion(S_cons.(datasets(data,:)).S_cons,options);
+
+S_cons.(datasets(data,:)).node_cohesion=node_cohesion;
+
+%% promiscuity
+
+P = promiscuity(S_cons.(datasets(data,:)).S_cons');  %%% i need to mind the orientation of the matrix to do it properly
+
+S_cons.(datasets(data,:)).P=P;
+
+end
+
+%%
+groups_flexibility=[];
+counter=1;
+for data=1:4
+
+    groups_flexibility(:,counter)=S_cons.(datasets(data,:)).flex;
+
+counter=counter+1;
+end
+
+groups_cohesion=[];
+counter=1;
+for data=1:4
+
+    groups_cohesion(:,counter)=S_cons.(datasets(data,:)).node_cohesion;
+
+counter=counter+1;
+end
+
+groups_prom=[];
+counter=1;
+for data=1:4
+
+    groups_prom(:,counter)=S_cons.(datasets(data,:)).P;
+
+counter=counter+1;
+end
+
+
+%%%%% 
+for data=1:4
+FlexMat.(datasets(data,:))(g,o)=mean(S_cons.(datasets(data,:)).flex);
+
+CoheMat.(datasets(data,:))(g,o)=mean(S_cons.(datasets(data,:)).node_cohesion);
+
+PromMat.(datasets(data,:))(g,o)=mean(S_cons.(datasets(data,:)).P);
+
+end
+
+%%
+name=strcat('g',num2str(10*gamma),'_o',num2str(10*omega));
+
+Big_FnS_OPT{g,o}=S_cons;
+
+
+end
+end
+
+
+%% saving
+
+save('S_cons_testing_GnO_measures4.mat','Big_FnS_OPT','FlexMat','CoheMat','PromMat','Allgamma','Allomega');
+
+
+
+%%
+
+counter=1;
+figure;
+for data=1:4
+   subplot(3,4,counter);imagesc(FlexMat.(datasets(data,:)));caxis([0 1]);
+   title(strcat('flex/',datasets(data,:)));
+   
+   counter=counter+1;
+end
+for data=1:4
+   subplot(3,4,counter);imagesc(CoheMat.(datasets(data,:)));caxis([0 1]);
+   title(strcat('cohe/',datasets(data,:)));
+   
+   counter=counter+1;
+end
+for data=1:4
+   subplot(3,4,counter);imagesc(PromMat.(datasets(data,:)));caxis([0 1]);
+   title(strcat('prom/',datasets(data,:)));
+   
+   counter=counter+1;
+end
+
+
+%%
+
+
+counter=1;
+test=[];
+for data=1:4
+    test(:,counter)=FlexMat.(datasets(data,:))(:);
+    
+    counter=counter+1;
+end
+
+
+figure;boxplot(test);
+
+    [p, tbl, stats]=anova1(test);
+    figure;
+    [c, m]=multcompare(stats,'CType','bonferroni');
+
+%%
+
+%%%% comparing flexibility
+counter=1;
+test=struct;
+for g=1:16
+for o=1:10
+    
+    for data=1:4   
+    
+    test.(datasets(data,:))(counter,:)=Big_FnS_OPT{g,o}.(datasets(data,:)).flex
+    end
+    counter=counter+1;
+end
+end
+
+
+groups_flexibilityTest=NaN(99,3);
+counter=1;
+for data=1:4
+    groups_flexibilityTest(1:99,counter)=mean(test.(datasets(data,:)));
+counter=counter+1;
+end
+
+figure;boxplot(groups_flexibilityTest);
+
+    [p, tbl, stats]=anova1(groups_flexibilityTest);
+    figure;
+    [c, m]=multcompare(stats,'CType','bonferroni');
+
+    
+    
+    %%
+    
+ 
+%%% to check which ones is worth plotting
+Flex_perBrain=struct;
+for brain=unique(Nodes.Nod_brainID(keep))'
+    temp_idx=find(Nodes.Nod_brainID(keep)==brain);
+    temp_groups=[];
+    for data=1:4 %%% keep in mind that I changed the order. now is controls, hets and fmr1
+    temp_groups(:,data)=groups_flexibilityTest(temp_idx,data);   
+    end
+    
+    Flex_perBrain.(RegionList{brain})=temp_groups;
+    
+    [p, tbl, stats]=anova1(temp_groups);
+    figure;title(RegionList{brain});
+    [c, m]=multcompare(stats,'CType','bonferroni');
+end
+
+%%% 
+
+%%%%%%%% now by cluster with the CL4
+
+for clust=unique(ClustID_CL4)'
+    temp_idx=find(ClustID_CL4==clust);
+    temp_groups=[];
+    for data=1:4 %%% keep in mind that I changed the order
+    temp_groups(:,data)=groups_flexibilityTest(temp_idx,data);   
+    end
+    
+    Flex_perClust4.(clustnames_CL4{clust})=temp_groups;
+    
+    [p, tbl, stats]=anova1(temp_groups);
+    figure;title(clustnames_CL4{clust});
+    [c, m]=multcompare(stats,'CType','bonferroni');
+end
+
+
+    %%
+    
+    
+flex_dif=groups_flexibilityTest(:,1)-groups_flexibilityTest(:,2);
+%figure;histogram(flex_dif);
+
+figure;set(gcf, 'Position',  [200, 200, 350, 450]);
+plot(Zbrain_brainMask2D(:,1),Zbrain_brainMask2D(:,2),'k');xlim([400 1350])
+%  hold on;
+%  gscatter(NodesFmr1.Nod_coor(keep,1),Nodes.Nod_coor(keep,2),NodesFmr1.Nod_brainID(keep,:),[],[],21); 
+%   hold on;
+%   gscatter(NodesFmr1.Nod_coor(keep,1),Nodes.Nod_coor(keep,2),ClustID(keep),'gggbrm',[],21); 
+hold on;
+scatter(Nodes.Nod_coor(keep,1),Nodes.Nod_coor(keep,2),30,flex_dif,'filled');colormap('parula');%caxis([-0.6 0.6]);%colorbar;
+view(-90,90);
+%title('top 1SD dif flex');
+hold off;
+
+%%
+
+%%%% now cohesion 
+counter=1;
+test2=struct;
+for g=1:16
+for o=1:10
+    
+    for data=1:4   
+    
+    test2.(datasets(data,:))(counter,:)=Big_FnS_OPT{g,o}.(datasets(data,:)).node_cohesion
+    end
+    counter=counter+1;
+end
+end
+
+
+groups_CoheTest=NaN(99,3);
+counter=1;
+for data=1:4
+    groups_CoheTest(1:99,counter)=mean(test2.(datasets(data,:)));
+counter=counter+1;
+end
+
+figure;boxplot(groups_CoheTest);
+
+    [p, tbl, stats]=anova1(groups_CoheTest);
+    figure;
+    [c, m]=multcompare(stats,'CType','bonferroni');
+
+    
+    
+ %%%% and promiscuity
+ 
+
+counter=1;
+test2=struct;
+for g=1:16
+for o=1:10
+    
+    for data=1:4   
+    
+    test2.(datasets(data,:))(counter,:)=Big_FnS_OPT{g,o}.(datasets(data,:)).P
+    end
+    counter=counter+1;
+end
+end
+
+
+groups_PromTest=NaN(99,3);
+counter=1;
+for data=1:4
+    groups_PromTest(1:99,counter)=mean(test2.(datasets(data,:)));
+counter=counter+1;
+end
+
+figure;boxplot(groups_PromTest);
+
+    [p, tbl, stats]=anova1(groups_PromTest);
+    figure;
+    [c, m]=multcompare(stats,'CType','bonferroni');
+
+
+
+%% 
+
+
+
+%%%% test using the sample of gammas and omegas based on the alldatasets
+%%%% average and 2SD:
+
+ g=[8; 7; 8; 9; 7; 8; 9];
+ o=[8; 9; 9; 9; 10; 10; 10];
+ 
+ 
+%%
+
+%%%% comparing flexibility
+counter=1;
+test=struct;
+%for i=1:length(o)
+for g=1:15
+for o=1:10
+    
+    for data=1:4   
+    
+    test.(datasets(data,:))(counter,:)=Big_FnS_OPT{g,o}.(datasets(data,:)).flex;
+    end
+    counter=counter+1;
+end
+end
+
+
+groups_flexibilityTest=NaN(99,3);
+counter=1;
+for data=1:4
+    groups_flexibilityTest(1:99,counter)=mean(test.(datasets(data,:)));
+counter=counter+1;
+end
+
+figure;boxplot(groups_flexibilityTest);
+
+    [p, tbl, stats]=anova1(groups_flexibilityTest);
+    figure;
+    [c, m]=multcompare(stats,'CType','bonferroni');
+
+    
+    
+    %%
+    
+ 
+%%% to check which ones is worth plotting
+Flex_perBrain=struct;
+for brain=unique(Nodes.Nod_brainID(keep))'
+    temp_idx=find(Nodes.Nod_brainID(keep)==brain);
+    temp_groups=[];
+    for data=1:4 %%% keep in mind that I changed the order. now is controls, hets and fmr1
+    temp_groups(:,data)=groups_flexibilityTest(temp_idx,data);   
+    end
+    
+    Flex_perBrain.(RegionList{brain})=temp_groups;
+    
+    [p, tbl, stats]=anova1(temp_groups);
+    figure;title(RegionList{brain});
+    [c, m]=multcompare(stats,'CType','bonferroni');
+end
+
+%%% 
+
+%%%%%%%% now by cluster with the CL4
+
+for clust=unique(ClustID_CL4)'
+    temp_idx=find(ClustID_CL4==clust);
+    temp_groups=[];
+    for data=1:4 %%% keep in mind that I changed the order
+    temp_groups(:,data)=groups_flexibilityTest(temp_idx,data);   
+    end
+    
+    Flex_perClust4.(clustnames_CL4{clust})=temp_groups;
+    
+    [p, tbl, stats]=anova1(temp_groups);
+    figure;title(clustnames_CL4{clust});
+    [c, m]=multcompare(stats,'CType','bonferroni');
+end
+
+

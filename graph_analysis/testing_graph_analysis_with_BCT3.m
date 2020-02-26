@@ -217,7 +217,7 @@ for i=1:7
 subplot(1,7,i);
 for data=1:4
 datatemp=datasets(data,:);
-histogram(MatAll_corrected.(datatemp).(loom{i}).str,20);
+histogram(MatAll_corrected.(datatemp).(loom{i}).deg,20);
 
 hold on;
 end
@@ -240,7 +240,7 @@ for i=1:length(loom)
     
   subplot(4,7,counter);
   plot(Zbrain_brainMask2D(:,1),Zbrain_brainMask2D(:,2),'k'); xlim([300 1400]);
-  hold on; scatter(Nodes2.Mod_loc(keep,1),Nodes2.Mod_loc(keep,2),25,MatAll_corrected.(datatemp).(loom{i}).str,'filled');colormap('jet');caxis([low high]);view(-90,90);%colorbar; 
+  hold on; scatter(Nodes2.Mod_loc(keep,1),Nodes2.Mod_loc(keep,2),25,MatAll_corrected.(datatemp).(loom{i}).deg,'filled');colormap('jet');caxis([low high]);view(-90,90);%colorbar; 
  
 counter=counter+1;
 end
